@@ -42,7 +42,7 @@ jobs:
           cat gradle/wrapper/gradle-wrapper.properties
 
       - name: Build debug APK
-        run: ./gradlew :app:assembleDebug --no-daemon
+        run: ./gradlew :app:assembleDebug --no-daemon -PuseAliyunMirror=false
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
