@@ -13,6 +13,16 @@ public class LogUtils {
     private static volatile boolean openLog = true;
     private static volatile boolean openNoisyLog = false;
 
+    public interface LogListener {
+        void onLog(String level, String tag, String message);
+    }
+
+    private static volatile LogListener logListener = null;
+
+    public static void setLogListener(LogListener listener) {
+        logListener = listener;
+    }
+
     public static final String ANSI_RESET = "\033[0m";
     public static final String ANSI_RED = "\033[31m";
     public static final String ANSI_GREEN = "\033[32m";
@@ -76,6 +86,14 @@ public class LogUtils {
 
         System.out.println(color + timeOut + "\t" + threadName + "\t" + tag + "\t" + msg + ANSI_RESET);
 
+        LogListener listener = logListener;
+        if (listener != null) {
+            try {
+                listener.onLog(type.name(), tag, msg);
+            } catch (Throwable ignored) {
+                // never let a listener break the build pipeline
+            }
+        }
     }
 
 }

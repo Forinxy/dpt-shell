@@ -4,6 +4,8 @@ import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.annotation.JSONField;
 import org.apache.commons.lang3.StringUtils;
 import org.json.JSONObject;
+import org.json.JSONException;
+import com.luoye.dpt.util.LogUtils;
 
 import java.util.Locale;
 
@@ -180,16 +182,20 @@ public class ShellConfig {
 
     public String toJson() {
         JSONObject jsonObject = new JSONObject();
-        jsonObject.put("app_name", getApplicationName());
-        jsonObject.put("acf_name", getAppComponentFactoryName());
-        String jniClassName = getJniSlashClassName();
-        jsonObject.put("jni_cls_name", jniClassName);
-        if (!StringUtils.isBlank(getAppSignSha256())) {
-            jsonObject.put("app_sign_sha256", getAppSignSha256());
+        try {
+            jsonObject.put("app_name", getApplicationName());
+            jsonObject.put("acf_name", getAppComponentFactoryName());
+            String jniClassName = getJniSlashClassName();
+            jsonObject.put("jni_cls_name", jniClassName);
+            if (!StringUtils.isBlank(getAppSignSha256())) {
+                jsonObject.put("app_sign_sha256", getAppSignSha256());
+            }
+            jsonObject.put("dex_sign", getDexSign());
+            jsonObject.put("insns_xor_key", getInsnsXorKey());
+            jsonObject.put("risk_check_flags", getRiskCheckFlags());
+        } catch (JSONException e) {
+            LogUtils.error("Failed to build shell config json", e);
         }
-        jsonObject.put("dex_sign", getDexSign());
-        jsonObject.put("insns_xor_key", getInsnsXorKey());
-        jsonObject.put("risk_check_flags", getRiskCheckFlags());
         return jsonObject.toString();
     }
 

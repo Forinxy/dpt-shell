@@ -1,6 +1,5 @@
 package com.luoye.dpt;
 
-import com.android.dx.command.dexer.Main;
 import com.luoye.dpt.builder.Aab;
 import com.luoye.dpt.builder.AndroidPackage;
 import com.luoye.dpt.builder.Apk;
@@ -16,19 +15,10 @@ import org.apache.commons.cli.Options;
 import org.apache.commons.cli.ParseException;
 
 import java.io.File;
-import java.io.IOException;
-import java.io.InputStream;
-import java.net.URL;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.util.ArrayList;
-import java.util.Enumeration;
 import java.util.List;
-import java.util.jar.Manifest;
 
 public class Dpt {
-
-    private static final String MANIFEST_BUILD_KEY_ATTR = "Dpt-Build-Key";
 
     public static void main(String[] args) {
         try {
@@ -49,55 +39,15 @@ public class Dpt {
     }
 
     private static void printVersion() {
-        System.out.println(getVersion());
+        System.out.println(DptBuildKey.getVersion());
     }
 
     public static String getVersion() {
-        Package pkg = Dpt.class.getPackage();
-        String version = (pkg != null) ? pkg.getImplementationVersion() : null;
-        if (version == null) {
-            version = "unknown";
-        }
-        return version;
+        return DptBuildKey.getVersion();
     }
 
     public static String getBuildKey() {
-        // Prefer the key written next to shell SO artifacts so encrypt side
-        // always matches the native binary being packaged.
-        String executablePath = FileUtils.getExecutablePath();
-        if (executablePath != null && !executablePath.isEmpty()) {
-            File keyFile = new File(executablePath,
-                    "shell-files" + File.separator + Const.KEY_BUILD_KEY_FILE_NAME);
-            if (keyFile.isFile()) {
-                try {
-                    String value = Files.readString(keyFile.toPath(), StandardCharsets.UTF_8).trim();
-                    if (!value.isEmpty()) {
-                        return value;
-                    }
-                } catch (IOException ignored) {
-                    // fall through to jar manifest
-                }
-            }
-        }
-
-        try {
-            ClassLoader classLoader = Dpt.class.getClassLoader();
-            if (classLoader == null) {
-                return null;
-            }
-            Enumeration<URL> resources = classLoader.getResources("META-INF/MANIFEST.MF");
-            while (resources.hasMoreElements()) {
-                try (InputStream is = resources.nextElement().openStream()) {
-                    String value = new Manifest(is).getMainAttributes().getValue(MANIFEST_BUILD_KEY_ATTR);
-                    if (value != null && !value.isEmpty()) {
-                        return value;
-                    }
-                }
-            }
-        } catch (IOException ignored) {
-            // fall through
-        }
-        return null;
+        return DptBuildKey.getBuildKey();
     }
 
     private static AndroidPackage parseOptions(String[] args) {

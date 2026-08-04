@@ -106,6 +106,28 @@ public class IoUtils {
         }
     }
 
+    public static java.util.List<String> readLines(String file){
+        java.util.List<String> lines = new java.util.ArrayList<>();
+        FileInputStream fileInputStream = null;
+        BufferedReader bufferedReader = null;
+        try {
+            fileInputStream = new FileInputStream(file);
+            bufferedReader = new BufferedReader(new InputStreamReader(fileInputStream));
+            String line;
+            while((line = bufferedReader.readLine()) != null){
+                lines.add(line);
+            }
+        }
+        catch (IOException e){
+            e.printStackTrace();
+        }
+        finally {
+            close(bufferedReader);
+            close(fileInputStream);
+        }
+        return lines;
+    }
+
     public static void close(Closeable closeable){
         if(closeable != null){
             try {

@@ -1,6 +1,6 @@
 package com.luoye.dpt.builder;
 
-import com.android.apksigner.ApkSignerTool;
+import com.android.apksig.ApkSigner;
 import com.luoye.dpt.config.ShellConfig;
 import com.luoye.dpt.util.FileUtils;
 import com.luoye.dpt.util.KeyUtils;
@@ -13,8 +13,14 @@ import com.wind.meditor.property.ModificationProperty;
 import com.wind.meditor.utils.NodeValue;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
+import java.security.KeyStore;
+import java.security.PrivateKey;
+import java.security.cert.X509Certificate;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 
 public class Apk extends AndroidPackage {
 
@@ -51,37 +57,44 @@ public class Apk extends AndroidPackage {
 
     @Override
     protected boolean sign(String packagePath, String keyStorePath, String signedPackagePath, String keyAlias, String storePassword, String KeyPassword) {
-        ArrayList<String> commandList = new ArrayList<>();
-        commandList.add("sign");
-        commandList.add("--ks");
-        commandList.add(keyStorePath);
-        commandList.add("--ks-key-alias");
-        commandList.add(keyAlias);
-        commandList.add("--ks-pass");
-        commandList.add("pass:" + storePassword);
-        commandList.add("--key-pass");
-        commandList.add("pass:" + KeyPassword);
-        commandList.add("--out");
-        commandList.add(signedPackagePath);
-        commandList.add("--v1-signing-enabled");
-        commandList.add("true");
-        commandList.add("--v2-signing-enabled");
-        commandList.add("true");
-        commandList.add("--v3-signing-enabled");
-        commandList.add("true");
-        commandList.add(packagePath);
-
-        int size = commandList.size();
-        String[] commandArray = new String[size];
-        commandArray = commandList.toArray(commandArray);
-
         try {
-            ApkSignerTool.main(commandArray);
+            KeyStore keyStore = KeyStore.getInstance(getKeyStoreType());
+            try (FileInputStream fis = new FileInputStream(keyStorePath)) {
+                char[] storePass = storePassword == null ? new char[0] : storePassword.toCharArray();
+                keyStore.load(fis, storePass);
+            }
+            char[] keyPass = KeyPassword == null ? new char[0] : KeyPassword.toCharArray();
+            PrivateKey privateKey = (PrivateKey) keyStore.getKey(keyAlias, keyPass);
+            if (privateKey == null) {
+                LogUtils.error("Failed to load signing key, alias not found: %s", keyAlias);
+                return false;
+            }
+            java.security.cert.Certificate[] certChain = keyStore.getCertificateChain(keyAlias);
+            if (certChain == null || certChain.length == 0) {
+                LogUtils.error("Failed to load certificate chain for alias: %s", keyAlias);
+                return false;
+            }
+            List<X509Certificate> certificates = new ArrayList<>(certChain.length);
+            for (java.security.cert.Certificate certificate : certChain) {
+                certificates.add((X509Certificate) certificate);
+            }
+
+            ApkSigner.SignerConfig signerConfig =
+                    new ApkSigner.SignerConfig.Builder("CERT", privateKey, certificates).build();
+
+            ApkSigner apkSigner = new ApkSigner.Builder(Collections.singletonList(signerConfig))
+                    .setInputApk(new File(packagePath))
+                    .setOutputApk(new File(signedPackagePath))
+                    .setV1SigningEnabled(true)
+                    .setV2SigningEnabled(true)
+                    .setV3SigningEnabled(true)
+                    .build();
+            apkSigner.sign();
+            return true;
         } catch (Exception e) {
-            e.printStackTrace();
+            LogUtils.error("Failed to sign APK: %s", e);
             return false;
         }
-        return true;
     }
 
     @Override

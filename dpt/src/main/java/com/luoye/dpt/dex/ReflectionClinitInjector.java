@@ -29,6 +29,7 @@ import com.luoye.dpt.util.StringUtils;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -60,10 +61,11 @@ public class ReflectionClinitInjector {
     private static final int REG_LENGTH = 5;
     private static final int REG_TEMP = 6;
 
-    private static final Set<String> SKIPPED_CLASS_TYPES = Set.of(
+    private static final Set<String> SKIPPED_CLASS_TYPES = Collections.unmodifiableSet(
+            new HashSet<>(Arrays.asList(
             "Landroidx/multidex/MultiDex;",
             "Lcom/android/support/multidex/MultiDex;"
-    );
+    )));
 
     private ReflectionClinitInjector() {
     }
@@ -246,7 +248,7 @@ public class ReflectionClinitInjector {
                 Opcode.INVOKE_VIRTUAL, 3, REG_CLASS_NAME, REG_METHOD_NAME, REG_ARRAY, 0, 0,
                 new ImmutableMethodReference(
                         CLASS_FOR_NAME, "getDeclaredMethod",
-                        List.of("Ljava/lang/String;", CLASS_ARRAY),
+                        Arrays.asList("Ljava/lang/String;", CLASS_ARRAY),
                         METHOD_TYPE)));
         impl.addInstruction(new BuilderInstruction11x(Opcode.MOVE_RESULT_OBJECT, REG_CLASS_NAME));
 
@@ -266,7 +268,7 @@ public class ReflectionClinitInjector {
                 Opcode.INVOKE_VIRTUAL, 3, REG_CLASS_NAME, REG_METHOD_NAME, REG_ARRAY, 0, 0,
                 new ImmutableMethodReference(
                         METHOD_TYPE, "invoke",
-                        List.of("Ljava/lang/Object;", OBJECT_ARRAY),
+                        Arrays.asList("Ljava/lang/Object;", OBJECT_ARRAY),
                         "Ljava/lang/Object;")));
         impl.addInstruction(new BuilderInstruction10x(Opcode.RETURN_VOID));
 

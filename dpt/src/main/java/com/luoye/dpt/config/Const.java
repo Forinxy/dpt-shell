@@ -62,6 +62,18 @@ public class Const {
     public static final String DEFAULT_THREAD_NAME = "dpt";
 
     public static final String ROOT_OF_OUT_DIR = System.getProperty("java.io.tmpdir");
+    private static volatile String injectedRootOfOutDir = null;
+
+    public static String getRootOfOutDir() {
+        if (injectedRootOfOutDir != null && !injectedRootOfOutDir.isEmpty()) {
+            return injectedRootOfOutDir;
+        }
+        return ROOT_OF_OUT_DIR;
+    }
+
+    public static void setRootOfOutDir(String rootOfOutDir) {
+        injectedRootOfOutDir = rootOfOutDir;
+    }
 
     public static final short MULTI_DEX_CODE_VERSION = 2;
 

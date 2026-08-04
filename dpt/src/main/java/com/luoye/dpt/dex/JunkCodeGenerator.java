@@ -6,13 +6,12 @@ import com.android.dx.Local;
 import com.android.dx.MethodId;
 import com.android.dx.TypeId;
 import com.luoye.dpt.util.LogUtils;
+import com.luoye.dpt.util.IoUtils;
 import com.luoye.dpt.util.StringUtils;
 
 import java.io.File;
 import java.io.IOException;
 import java.lang.reflect.Modifier;
-import java.nio.file.Files;
-import java.nio.file.Paths;
 import java.security.SecureRandom;
 import java.util.HashSet;
 import java.util.Locale;
@@ -112,7 +111,7 @@ public class JunkCodeGenerator {
         }
 
         byte[] generate = dexMaker.generate();
-        Files.write(Paths.get(file.getAbsolutePath()), generate);
+        IoUtils.writeFile(file.getAbsolutePath(), generate);
         LogUtils.info("generated junk class count: %d", generateClassCount);
 
     }

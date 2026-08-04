@@ -15,7 +15,6 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Enumeration;
@@ -360,7 +359,7 @@ public class ZipUtils {
             if(zip.exists()) {
                 zip.delete();
             }
-            CheckedOutputStream cos = new CheckedOutputStream(Files.newOutputStream(zip.toPath()), new CRC32());
+            CheckedOutputStream cos = new CheckedOutputStream(new FileOutputStream(zip), new CRC32());
             zos = new ZipOutputStream(cos);
             for (int i = 0; i < doNotCompress.size(); i++) {
                 String check = doNotCompress.get(i);

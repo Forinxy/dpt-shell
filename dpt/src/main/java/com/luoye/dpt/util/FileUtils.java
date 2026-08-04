@@ -1,7 +1,5 @@
 package com.luoye.dpt.util;
 
-import com.luoye.dpt.Dpt;
-
 import java.io.File;
 import java.io.IOException;
 import java.net.URL;
@@ -57,9 +55,23 @@ public class FileUtils {
         }
     }
 
+    private static String executablePathOverride;
+
+    /**
+     * Inject a custom executable path. Used on Android where
+     * {@code getProtectionDomain()} is unavailable and shell-files are
+     * extracted to the app's private directory.
+     */
+    public static void setExecutablePath(String path) {
+        executablePathOverride = path;
+    }
+
     public static String getExecutablePath() {
+        if (executablePathOverride != null && !executablePathOverride.isEmpty()) {
+            return executablePathOverride;
+        }
         try {
-            URL location = Dpt.class.getProtectionDomain().getCodeSource().getLocation();
+            URL location = FileUtils.class.getProtectionDomain().getCodeSource().getLocation();
             File jarFile = new File(location.toURI());
             return jarFile.getParent();
         } catch (Exception e) {
@@ -68,11 +80,23 @@ public class FileUtils {
         return "";
     }
 
+    private static String userDirOverride;
+
+    /**
+     * Inject a custom user dir. Used on Android where {@code user.dir}
+     * points to "/" which is not writable.
+     */
+    public static void setUserDir(String path) {
+        userDirOverride = path;
+    }
 
     /**
      * Gets the directory where the current command tool is located
      */
     public static String getUserDir() {
+        if (userDirOverride != null && !userDirOverride.isEmpty()) {
+            return userDirOverride;
+        }
         return System.getProperty("user.dir");
     }
 

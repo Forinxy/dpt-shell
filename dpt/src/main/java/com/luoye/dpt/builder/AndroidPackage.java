@@ -3,7 +3,6 @@ package com.luoye.dpt.builder;
 
 import com.alibaba.fastjson2.JSON;
 import com.iyxan23.zipalignjava.ZipAlign;
-import com.luoye.dpt.Dpt;
 import com.luoye.dpt.config.Const;
 import com.luoye.dpt.config.ProtectRules;
 import com.luoye.dpt.config.ShellConfig;
@@ -14,6 +13,7 @@ import com.luoye.dpt.model.MultiDexCode;
 import com.luoye.dpt.task.ThreadPool;
 import com.luoye.dpt.util.CryptoUtils;
 import com.luoye.dpt.util.DexUtils;
+import com.luoye.dpt.util.DptBuildKey;
 import com.luoye.dpt.util.FileUtils;
 import com.luoye.dpt.util.HexUtils;
 import com.luoye.dpt.util.IoUtils;
@@ -37,9 +37,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.RandomAccessFile;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Paths;
-import java.nio.file.StandardCopyOption;
 import java.security.KeyStore;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
@@ -158,6 +155,38 @@ public abstract class AndroidPackage {
     private String protectConfigFile;
     private boolean verifySign = false;
     private int riskCheckFlags = 0;
+
+    private static volatile String keyStoreType = "JKS";
+
+    /**
+     * Set the JCA KeyStore type used when loading the debug signing keystore.
+     * The JVM default is "JKS"; on Android use "PKCS12" (or "BKS") because
+     * JKS is not supported by the platform's default providers.
+     */
+    public static void setKeyStoreType(String type) {
+        keyStoreType = type;
+    }
+
+    public static String getKeyStoreType() {
+        return keyStoreType;
+    }
+
+    private static volatile String debugKeyStorePath = null;
+
+    /**
+     * Inject an absolute path to a debug signing keystore that already exists
+     * on disk. When set, {@link #protect()} skips reading the bundled
+     * {@code assets/dpt.jks} and uses this file instead. Used on Android where
+     * the bundled JKS cannot be loaded and a PKCS12 keystore is generated at
+     * runtime.
+     */
+    public static void setDebugKeyStorePath(String path) {
+        debugKeyStorePath = path;
+    }
+
+    public static String getDebugKeyStorePath() {
+        return debugKeyStorePath;
+    }
 
     public AndroidPackage(Builder builder) {
         setFilePath(builder.filePath);
@@ -365,7 +394,7 @@ public abstract class AndroidPackage {
         if (packageName == null || packageName.isEmpty()) {
             throw new IllegalStateException("package name is empty, cannot derive config aes key");
         }
-        String buildKey = Dpt.getBuildKey();
+        String buildKey = DptBuildKey.getBuildKey();
         if (buildKey == null || buildKey.isEmpty()) {
             throw new IllegalStateException("dpt build key is missing, cannot derive config aes key");
         }
@@ -395,14 +424,14 @@ public abstract class AndroidPackage {
     public abstract void setDebuggable(String manifestDir,boolean debuggable);
 
     public File getWorkspaceDir() {
-        return FileUtils.getDir(Const.ROOT_OF_OUT_DIR, "dptOut-" + Const.RANDOM_DIR_NAME);
+        return FileUtils.getDir(Const.getRootOfOutDir(), "dptOut-" + Const.RANDOM_DIR_NAME);
     }
 
     /**
      * Get last process（zipalign，sign）dir
      */
     public File getLastProcessDir() {
-        return FileUtils.getDir(Const.ROOT_OF_OUT_DIR, "dptLastProcess-" + Const.RANDOM_DIR_NAME);
+        return FileUtils.getDir(Const.getRootOfOutDir(), "dptLastProcess-" + Const.RANDOM_DIR_NAME);
     }
 
     protected abstract File getOutAssetsDir(String packageDir);
@@ -487,11 +516,11 @@ public abstract class AndroidPackage {
         }
 
         if(!isAligned) {
-            try {
-                Files.move(Paths.get(unalignedFilePath), Paths.get(alignedFilePath), StandardCopyOption.REPLACE_EXISTING);
-            }
-            catch (Exception e1) {
-                e1.printStackTrace();
+            File unalignedFile = new File(unalignedFilePath);
+            File alignedFile = new File(alignedFilePath);
+            if (!unalignedFile.renameTo(alignedFile)) {
+                IoUtils.copyFile(unalignedFilePath, alignedFilePath);
+                unalignedFile.delete();
             }
         }
     }
@@ -534,12 +563,7 @@ public abstract class AndroidPackage {
             for (File libFile : libFiles) {
                 if (libFile.isFile() && libFile.getName().endsWith(".so")) {
                     File destFile = new File(destAbiDir, libFile.getName());
-                    try {
-                        Files.copy(libFile.toPath(), destFile.toPath(),
-                                StandardCopyOption.REPLACE_EXISTING);
-                    } catch (IOException e) {
-                        LogUtils.error("Failed to copy library: " + e.getMessage());
-                    }
+                    IoUtils.copyFile(libFile.getAbsolutePath(), destFile.getAbsolutePath());
                 }
             }
         }
@@ -825,11 +849,16 @@ public abstract class AndroidPackage {
 
         String keyStoreFilePath = packageLastProcessDir + File.separator + Const.KEY_STORE_ASSET_NAME;
 
-        try {
-            ZipUtils.readResourceFromRuntime(Const.KEY_STORE_ASSET_PATH, keyStoreFilePath);
-        }
-        catch (IOException e){
-            e.printStackTrace();
+        String injectedKeyStore = getDebugKeyStorePath();
+        if (injectedKeyStore != null && !injectedKeyStore.isEmpty()) {
+            keyStoreFilePath = injectedKeyStore;
+        } else {
+            try {
+                ZipUtils.readResourceFromRuntime(Const.KEY_STORE_ASSET_PATH, keyStoreFilePath);
+            }
+            catch (IOException e){
+                e.printStackTrace();
+            }
         }
 
         String unsignedPackagePath = outputDir
@@ -871,12 +900,9 @@ public abstract class AndroidPackage {
             }
         }
         else {
-            try {
-                if(outputPath != null) {
-                    Files.copy(Paths.get(willSignPackagePath), Paths.get(signedPackagePath),
-                            StandardCopyOption.REPLACE_EXISTING);
-                }
-            } catch (IOException ignored) {}
+            if(outputPath != null) {
+                IoUtils.copyFile(willSignPackagePath, signedPackagePath);
+            }
         }
 
         File willSignPackageFile = new File(willSignPackagePath);
@@ -897,10 +923,9 @@ public abstract class AndroidPackage {
         }
 
         if(zipalignSuccess) {
-            try {
-                Files.deleteIfExists(Paths.get(unzipalignPackagePath));
-            }catch (Exception e){
-                LogUtils.debug("unzipalign package path err = %s", e);
+            File unzipalignFile = new File(unzipalignPackagePath);
+            if (unzipalignFile.exists()) {
+                unzipalignFile.delete();
             }
         }
 
@@ -934,22 +959,16 @@ public abstract class AndroidPackage {
     }
 
     private void processRuleFile() {
-        try {
-            if(!org.apache.commons.lang3.StringUtils.isBlank(getRulesFilePath())) {
-                File file = new File(getRulesFilePath());
-                LogUtils.debug("Exclude rules file: %s", file);
-                List<String> strings = com.google.common.io.Files.readLines(file, StandardCharsets.UTF_8);
-                ProtectRules protectRules = ProtectRules.getInstance();
-                if (!strings.isEmpty()) {
-                    protectRules.setExcludeRules(strings.toArray(String[]::new));
-                } else {
-                    LogUtils.debug("Exclude rules file is empty", file);
-
-                }
+        if(!org.apache.commons.lang3.StringUtils.isBlank(getRulesFilePath())) {
+            File file = new File(getRulesFilePath());
+            LogUtils.debug("Exclude rules file: %s", file);
+            List<String> strings = IoUtils.readLines(file.getAbsolutePath());
+            ProtectRules protectRules = ProtectRules.getInstance();
+            if (!strings.isEmpty()) {
+                protectRules.setExcludeRules(strings.toArray(new String[0]));
+            } else {
+                LogUtils.debug("Exclude rules file is empty", file);
             }
-        }
-        catch (IOException e) {
-            LogUtils.info("Exclude rules file is unavailable: %s", e.getMessage());
         }
     }
 

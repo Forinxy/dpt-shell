@@ -25,6 +25,7 @@ import org.apache.commons.lang3.tuple.Pair;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
+import org.json.JSONException;
 
 import java.io.File;
 import java.io.IOException;
@@ -311,15 +312,23 @@ public class DexUtils {
         File writePath = new File(pkg.getAbsolutePath(),originFile.getName() + ".json");
         LogUtils.info("dump json to path: %s",writePath.getParentFile().getName() + File.separator + writePath.getName());
 
-        IoUtils.writeFile(writePath.getAbsolutePath(),array.toString(1).getBytes());
+        try {
+            IoUtils.writeFile(writePath.getAbsolutePath(),array.toString(1).getBytes());
+        } catch (JSONException e) {
+            LogUtils.error("Failed to dump instruction json", e);
+        }
     }
 
     private static void putToJSON(JSONArray array,Instruction instruction){
         JSONObject jsonObject = new JSONObject();
         String hex = HexUtils.toHexArray(instruction.getInstructionsData());
-        jsonObject.put("methodId",instruction.getMethodIndex());
-        jsonObject.put("code",hex);
-        array.put(jsonObject);
+        try {
+            jsonObject.put("methodId",instruction.getMethodIndex());
+            jsonObject.put("code",hex);
+            array.put(jsonObject);
+        } catch (JSONException e) {
+            LogUtils.error("Failed to put instruction to json", e);
+        }
     }
 
     /**
@@ -455,7 +464,9 @@ public class DexUtils {
             return null;
         }
         byte[] signature = new byte[20];
-        ByteBuffer.wrap(dexData).position(9).get(signature);
+        ByteBuffer buffer = ByteBuffer.wrap(dexData);
+        buffer.position(9);
+        buffer.get(signature);
         return HexUtils.toHexString(signature);
     }
 
