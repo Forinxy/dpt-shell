@@ -235,8 +235,6 @@ public class Apk extends AndroidPackage {
          *======================================*/
         apk.writeConfig(apkMainProcessPath, encKey);
 
-        apk.injectJunkAssets(apkMainProcessPath);
-
         apk.buildPackage(apkFile.getAbsolutePath(), apkMainProcessPath, FileUtils.getUserDir());
 
         File apkMainProcessFile = new File(apkMainProcessPath);
