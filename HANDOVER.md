@@ -228,10 +228,16 @@ zip -r dpt-shell-app-源码.zip \
 | dpt.jks 排除 | `unzip -l app-debug.apk` | 无 dpt.jks（正确） |
 | 加固产物签名链路 | 源码走查 `buildPackage()` + `Apk.sign()` | 注入 PKCS12 路径生效 |
 | 日志复制/清空 | `MainActivity.kt` `copyLogs()`/`logs.clear()` | 编译通过，UI 含复制/清空按钮 |
-| RC4 key 全随机 | `KeyUtils.generateKey()` 去固定字节 | 编译通过，so 符号 `n_DATA` 覆写正常 |
-| Junk 类名随机化 | 加固产物 `classes11.dex` 类描述符 | 前缀完全随机（2-5 层），非固定 `com/luoye/dpt/junkcode` |
-| 垃圾数据注入 | 加固产物 `assets/<random>/<random>` | 每次加固 4-10 个随机文件、内容随机字节 |
+| RC4 key 全随机 | `KeyUtils.generateKey()` 去固定字节 | 编译通过，so 符号 `DPT_UNKNOWN_DATA` 覆写正常 |
+| Junk 类名差异化 | 加固产物 `junkcode.dex` 类描述符 | 固定前缀 `com/luoye/dpt/junkcode/JunkClass`（native `JUNK_CLASS_FULL_NAME` 依赖，**不可随机前缀**）+ 数字后缀随机 + 随机 `()I` 字段方法；每次加固 90-99 个类 |
+| 垃圾数据注入 | ~~`assets/<random>/<random>`~~ | **已回滚**（提交 7816a21） |
 | 加固产物签名复核 | `apksigner verify --verbose` | v2/v3 通过，1 signer |
+
+**崩溃根因（v2.17.0 加固产物 SIGSEGV pc=0）**：
+- 现象：加固产物启动即崩，`signal 11, pc=0, lr=0`，单帧 `<unknown>`，arm64 + PAC 设备（Android 16）
+- 根因：`JunkCodeGenerator` 随机前缀改动使 junk 类名不再含固定 `com/luoye/dpt/junkcode/JunkClass`，而 native `combineDexElements` 末尾 `junkCodeDexProtect()`（`dpt_risk.cpp:33`）用固定 `JUNK_CLASS_FULL_NAME`（`dpt_macro.h:33`）`FindClass` 返回 NULL → `dpt_crash()`（aarch64 `mov x30,#0` 后 ret 跳 0 地址）→ SIGSEGV pc=0
+- 修复：`JunkCodeGenerator` 恢复固定前缀 + 保留数字后缀与随机字段方法，已本地加固验证 `Lcom/luoye/dpt/junkcode/JunkClass;` 存在、产物签名/结构正常
+- 教训：**junk 类基名与 native 侧 `JUNK_CLASS_FULL_NAME`/`patchClass()` 硬编码耦合，加固侧不得随机化基名**；后续如需随机前缀需同步改 native 常量并重编 so
 
 **用户侧设备端验证**（构建完成后必做）：
 1. 安装 app-debug.apk 并启动
@@ -256,18 +262,19 @@ zip -r dpt-shell-app-源码.zip \
 
 ## 13. Git 状态与推送
 
-- 当前 HEAD：`504e45d`（fix: 阿里云镜像开关可禁用）
-- 已推送：4 个提交（app 模块、dpt 兼容、CI workflow、镜像开关）
+- 当前 HEAD：`7816a21`（revert injectJunkAssets）→ 待提交本次根因修复
+- 已推送：5 个提交（app 模块、dpt 兼容、CI workflow、镜像开关、随机化增强 80a89bb、回滚 7816a21）
 - Actions：run `30937599875` completed success，artifact `dpt-shell-app-debug-apk`
-- remote：`https://github.com/Forinxy/dpt-shell`
-- 本次待提交：日志复制/清空 + 随机化增强（MainActivity.kt、KeyUtils.java、JunkCodeGenerator.java、AndroidPackage.java、Apk.java）
+- remote：`https://github.com/Forinxy/dpt-shell`（push 需经 remote URL 临时注入 token）
+- 本次待提交：JunkCodeGenerator 固定前缀修复（dpt/src/main/java/com/luoye/dpt/dex/JunkCodeGenerator.java）
+- Release：`v2.17.0` 已建，`app-debug.apk`（19MB）已 `gh release upload --clobber` 更新；**修复后需重新构建并覆盖上传**
 
 ---
 
 ## 14. 用户下一步
 
-1. **构建新 APK**：本机 `./gradlew :app:assembleDebug` 或 GitHub Actions，验证日志复制与随机化改动
-2. **设备端冒烟**：按第 11 节第 5 步加固一个测试 APK，验证产物可安装可运行
+1. **构建新 APK**：本机 `./gradlew :app:assembleDebug` 或 GitHub Actions，重新产出修复版 app-debug.apk（含固定前缀 junk 类）
+2. **设备端冒烟**：按第 11 节第 5 步加固一个测试 APK，确认产物可安装、可正常启动、无 SIGSEGV pc=0 崩溃
 3. **（可选）正式签名**：按第 7 节替换正式 keystore
 4. **（可选）重新生成壳**：如要换 so 名/build-key，按第 8 节重新同步 shell-files
-5. **确认是否推送 git**：本次随机化改动是否推送 remote
+5. **确认是否推送 git**：本次根因修复是否推送 remote 并重新上传 Release

@@ -21,35 +21,22 @@ import java.util.Set;
  * @author luoyesiqiu
  */
 public class JunkCodeGenerator {
+    // Keep the base class name fixed: the native shell looks up
+    // JUNK_CLASS_FULL_NAME ("com/luoye/dpt/junkcode/JunkClass") in
+    // junkCodeDexProtect()/patchClass(). Randomizing the package would make
+    // FindClass() return null and trigger dpt_crash() (SIGSEGV pc=0) on device.
+    private static final String BASE_CLASS_NAME = "com/luoye/dpt/junkcode/JunkClass";
     private static final int MAX_GENERATE_COUNT = 100;
     private static final Set<String> classNameSet = new HashSet<>();
 
-    /**
-     * Generate a random package prefix, e.g. "Laaaa/bbb" or "Laaa/bb/ccc".
-     * The prefix changes on every reinforcement, so the junk dex signature cannot
-     * be pinned to a fixed package.
-     */
-    private static String generateRandomPackagePrefix() {
-        SecureRandom secureRandom = new SecureRandom();
-        int depth = secureRandom.nextInt(3) + 2;
-        StringBuilder sb = new StringBuilder("L");
-        for (int i = 0; i < depth; i++) {
-            if (i > 0) {
-                sb.append("/");
-            }
-            sb.append(StringUtils.generateIdentifier(3));
-        }
-        return sb.toString();
-    }
-
     private static String generateBaseClassName() {
-        return String.format(Locale.US, "%s/JunkClass;", generateRandomPackagePrefix());
+        return String.format(Locale.US, "L%s;", BASE_CLASS_NAME);
     }
 
     private static String generateClassName() {
         SecureRandom secureRandom = new SecureRandom();
         int number = Math.floorMod(secureRandom.nextInt(), MAX_GENERATE_COUNT * 10);
-        return String.format(Locale.US, "%s/JunkClass%d;", generateRandomPackagePrefix(), number);
+        return String.format(Locale.US, "L%s%d;", BASE_CLASS_NAME, number);
     }
 
     private static void insertSystemExit(Code code, boolean returnVoid) {
