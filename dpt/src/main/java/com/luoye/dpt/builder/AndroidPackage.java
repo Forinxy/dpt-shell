@@ -413,6 +413,29 @@ public abstract class AndroidPackage {
     }
 
     /**
+     * Inject random junk data files under a random assets directory so that the
+     * reinforced package carries non-reversible random features that cannot be
+     * used by a dumper to locate the shell structures.
+     */
+    public void injectJunkAssets(String packageDir) {
+        SecureRandom secureRandom = new SecureRandom();
+        int junkFileCount = secureRandom.nextInt(6) + 4;
+        for (int i = 0; i < junkFileCount; i++) {
+            String randomDir = StringUtils.generateIdentifier(4);
+            String randomName = StringUtils.generateIdentifier(4);
+            File junkDir = new File(getOutAssetsDir(packageDir).getAbsolutePath(), randomDir);
+            if (!junkDir.exists()) {
+                junkDir.mkdirs();
+            }
+            int dataSize = secureRandom.nextInt(1024 * 32) + 256;
+            byte[] randomData = new byte[dataSize];
+            secureRandom.nextBytes(randomData);
+            IoUtils.writeFile(new File(junkDir, randomName).getAbsolutePath(), randomData);
+        }
+        LogUtils.info("injected random junk assets count: %d", junkFileCount);
+    }
+
+    /**
      * Write proxy ApplicationName
      */
     public abstract void writeProxyAppName(String manifestDir);

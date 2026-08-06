@@ -227,6 +227,11 @@ zip -r dpt-shell-app-源码.zip \
 | 壳资源入包 | `unzip -l app-debug.apk` | shell-files 6 文件 + 4 ABI so 均在 assets/ |
 | dpt.jks 排除 | `unzip -l app-debug.apk` | 无 dpt.jks（正确） |
 | 加固产物签名链路 | 源码走查 `buildPackage()` + `Apk.sign()` | 注入 PKCS12 路径生效 |
+| 日志复制/清空 | `MainActivity.kt` `copyLogs()`/`logs.clear()` | 编译通过，UI 含复制/清空按钮 |
+| RC4 key 全随机 | `KeyUtils.generateKey()` 去固定字节 | 编译通过，so 符号 `n_DATA` 覆写正常 |
+| Junk 类名随机化 | 加固产物 `classes11.dex` 类描述符 | 前缀完全随机（2-5 层），非固定 `com/luoye/dpt/junkcode` |
+| 垃圾数据注入 | 加固产物 `assets/<random>/<random>` | 每次加固 4-10 个随机文件、内容随机字节 |
+| 加固产物签名复核 | `apksigner verify --verbose` | v2/v3 通过，1 signer |
 
 **用户侧设备端验证**（构建完成后必做）：
 1. 安装 app-debug.apk 并启动
@@ -244,29 +249,25 @@ zip -r dpt-shell-app-源码.zip \
 | minSdk | App 为 26（fastjson2 依赖 `MethodHandle`），低于 Android 8.0 设备不可装 |
 | 大 APK | 本机 7.8GiB 内存下大体积输入 APK 加固可能 OOM，建议用户侧构建用更大内存（`org.gradle.jvmargs=-Xmx2048m` 可上调） |
 | 未做真机冒烟 | 本环境无设备/模拟器，设备端行为（第 11 节第 5 步）待用户侧验证 |
-| 未推送 | git 未推送（见第 13 节） |
 | 混淆 | App 未启用 R8/minify（`minifyEnabled false`），体积较大但逻辑透明 |
+| 需求 2 待办 | 代理类名/路径随机化增强未实施（需同步改 dex 重命名逻辑，风险高）；反调试 native 增强需重编译壳 so（用户选定 Java 侧随机，暂不做）；`LIB_DIR`/`ZIP_LIB_DIR` 固定目录未随机（native 与 Java 共用常量） |
 
 ---
 
 ## 13. Git 状态与推送
 
-- 当前 HEAD：`2e4dedf1998aa298aa9f5eab3f4dbc4f4ed4e581`（v2.17.0）
-- 未提交改动：`app/`（新增）、`dpt/src/main/java/**`（Android 兼容改造，见第 6 节）、`settings.gradle`、`build.gradle`、`gradle.properties`、`gradlew`、`.github/workflows/build-apk.yml`、`.gitignore`
+- 当前 HEAD：`504e45d`（fix: 阿里云镜像开关可禁用）
+- 已推送：4 个提交（app 模块、dpt 兼容、CI workflow、镜像开关）
+- Actions：run `30937599875` completed success，artifact `dpt-shell-app-debug-apk`
 - remote：`https://github.com/Forinxy/dpt-shell`
-- **推送状态：未推送。** 如用户确认推送，需提供 GitHub token（按流程先确认再要 token）。
-
-建议提交粒度：
-1. `feat: add Android app module for on-device APK hardening`
-2. `refactor: make dpt core compatible with Android (no java.nio, DptBuildKey, PKCS12 signing)`
-3. `ci: add build-apk workflow with aliyun/tencent mirrors`
+- 本次待提交：日志复制/清空 + 随机化增强（MainActivity.kt、KeyUtils.java、JunkCodeGenerator.java、AndroidPackage.java、Apk.java）
 
 ---
 
 ## 14. 用户下一步
 
-1. **选择构建方式**：本机 `./gradlew :app:assembleDebug` 或 GitHub Actions（推送到 remote 后手动触发 `workflow_dispatch`）
+1. **构建新 APK**：本机 `./gradlew :app:assembleDebug` 或 GitHub Actions，验证日志复制与随机化改动
 2. **设备端冒烟**：按第 11 节第 5 步加固一个测试 APK，验证产物可安装可运行
 3. **（可选）正式签名**：按第 7 节替换正式 keystore
 4. **（可选）重新生成壳**：如要换 so 名/build-key，按第 8 节重新同步 shell-files
-5. **确认是否推送 git**：告知后按第 13 节流程提供 token 或自行推送
+5. **确认是否推送 git**：本次随机化改动是否推送 remote

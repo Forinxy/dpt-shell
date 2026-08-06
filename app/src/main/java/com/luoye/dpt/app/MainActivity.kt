@@ -1,6 +1,9 @@
 package com.luoye.dpt.app
 
 import android.content.Intent
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -13,6 +16,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.lifecycleScope
@@ -101,7 +105,21 @@ class MainActivity : ComponentActivity() {
 
                         Spacer(modifier = Modifier.height(12.dp))
 
-                        Text("日志", style = MaterialTheme.typography.titleSmall)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("日志", style = MaterialTheme.typography.titleSmall)
+                            Row {
+                                TextButton(onClick = { copyLogs() }) {
+                                    Text("复制", fontSize = 12.sp)
+                                }
+                                TextButton(onClick = { logs.clear() }) {
+                                    Text("清空", fontSize = 12.sp)
+                                }
+                            }
+                        }
                         HorizontalDivider()
 
                         Box(
@@ -244,5 +262,10 @@ class MainActivity : ComponentActivity() {
         runOnUiThread {
             logs.add(line)
         }
+    }
+
+    private fun copyLogs() {
+        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        clipboard.setPrimaryClip(ClipData.newPlainText("dpt-shell logs", logs.joinToString("\n")))
     }
 }

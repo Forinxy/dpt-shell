@@ -21,9 +21,36 @@ import java.util.Set;
  * @author luoyesiqiu
  */
 public class JunkCodeGenerator {
-    private static final String BASE_CLASS_NAME = "com/luoye/dpt/junkcode/JunkClass";
     private static final int MAX_GENERATE_COUNT = 100;
     private static final Set<String> classNameSet = new HashSet<>();
+
+    /**
+     * Generate a random package prefix, e.g. "Laaaa/bbb" or "Laaa/bb/ccc".
+     * The prefix changes on every reinforcement, so the junk dex signature cannot
+     * be pinned to a fixed package.
+     */
+    private static String generateRandomPackagePrefix() {
+        SecureRandom secureRandom = new SecureRandom();
+        int depth = secureRandom.nextInt(3) + 2;
+        StringBuilder sb = new StringBuilder("L");
+        for (int i = 0; i < depth; i++) {
+            if (i > 0) {
+                sb.append("/");
+            }
+            sb.append(StringUtils.generateIdentifier(3));
+        }
+        return sb.toString();
+    }
+
+    private static String generateBaseClassName() {
+        return String.format(Locale.US, "%s/JunkClass;", generateRandomPackagePrefix());
+    }
+
+    private static String generateClassName() {
+        SecureRandom secureRandom = new SecureRandom();
+        int number = Math.floorMod(secureRandom.nextInt(), MAX_GENERATE_COUNT * 10);
+        return String.format(Locale.US, "%s/JunkClass%d;", generateRandomPackagePrefix(), number);
+    }
 
     private static void insertSystemExit(Code code, boolean returnVoid) {
         TypeId<System> systemType = TypeId.get(System.class);
@@ -47,17 +74,11 @@ public class JunkCodeGenerator {
         code.throwValue(throwableLocal);
     }
 
-    private static String generateBaseClassName() {
-
-        return String.format(Locale.US, "L%s;", BASE_CLASS_NAME);
-    }
-
-    private static String generateClassName() {
+    private static void insertRandomFieldCode(Code code) {
         SecureRandom secureRandom = new SecureRandom();
-        // nextInt() can be negative; keep suffix non-negative for stable class names.
-        int number = Math.floorMod(secureRandom.nextInt(), MAX_GENERATE_COUNT * 10);
-
-        return String.format(Locale.US, "L%s%d;", BASE_CLASS_NAME, number);
+        Local<Integer> valueLocal = code.newLocal(TypeId.INT);
+        code.loadConstant(valueLocal, secureRandom.nextInt(1024 * 1024));
+        code.returnValue(valueLocal);
     }
 
     public static void generateJunkCodeDex(File file) throws IOException {
@@ -107,6 +128,16 @@ public class JunkCodeGenerator {
                     insertNullExceptionCode(randomMethodCode);
                 }
 
+            }
+
+            // generate random junk fields with a random return method to increase
+            // the amount of irrecoverable junk data
+            int fieldCount = secureRandom.nextInt(3) + 1;
+            for (int j = 0; j < fieldCount; j++) {
+                String fieldName = StringUtils.generateIdentifier(3);
+                MethodId<?, Integer> fieldGetter = typeId.getMethod(TypeId.INT, fieldName);
+                Code fieldCode = dexMaker.declare(fieldGetter, Modifier.PUBLIC);
+                insertRandomFieldCode(fieldCode);
             }
         }
 
