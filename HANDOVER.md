@@ -253,7 +253,7 @@ zip -r dpt-shell-app-源码.zip \
 |---|---|
 | 签名 | 仅内置运行时生成的调试密钥；正式签名需用户自行处理（第 7 节） |
 | minSdk | App 为 26（fastjson2 依赖 `MethodHandle`），低于 Android 8.0 设备不可装 |
-| 大 APK | **已优化**：dex 处理串行化（ThreadPool 核心=1/最大=1）+ `largeHeap=true` + dex 流式复制 + 头部读取；本机 20MB 输入实测通过，100MB 需设备端验证（手机 heap 受 `largeHeap` 上限，仍可能 OOM 超大 APK） |
+| 大 APK | **已优化**：dex 串行（core=1/max=1）+ 任务体 finally 兜底 countDown 防止 OOM 死锁 + extractMethod 批量 IO + largeHeap + 流式复制；本机 20MB 实测通过，100MB 需设备端验证（极少数超大单 dex 仍可能因 heap 上限触发 OOM） |
 | 存储权限 | Android 11+ 需授予"所有文件访问"（MANAGE_EXTERNAL_STORAGE），App 启动即跳设置引导；输出保存到原 APK 同目录 |
 | 未做真机冒烟 | 本环境无设备/模拟器，设备端行为（第 11 节第 5 步）待用户侧验证 |
 | 混淆 | App 未启用 R8/minify（`minifyEnabled false`），体积较大但逻辑透明 |
@@ -263,12 +263,11 @@ zip -r dpt-shell-app-源码.zip \
 
 ## 13. Git 状态与推送
 
-- 当前 HEAD：`326dea3`（fix: restore fixed junk class base name）→ 待提交本次大 APK/存储/日志改动
-- 已推送：6 个提交（app 模块、dpt 兼容、CI workflow、镜像开关、随机化增强 80a89bb、回滚 7816a21、junk 基名修复 326dea3）
+- 当前 HEAD：`5a1bbe6`（fix: avoid countDownLatch deadlock on OOM + bulk IO in extractMethod）→ 已推送
+- 已推送：7 个提交（app 模块、dpt 兼容、CI workflow、镜像开关、随机化增强 80a89bb、回滚 7816a21、junk 基名修复 326dea3、大 APK 死锁/IO 修复 5a1bbe6、大 APK/存储/日志功能 774f6d9）
 - Actions：run `30937599875` completed success，artifact `dpt-shell-app-debug-apk`
 - remote：`https://github.com/Forinxy/dpt-shell`（push 需经 remote URL 临时注入 token）
-- 本次待提交：ThreadPool 串行化+复用、DexUtils 内存优化、Manifest largeHeap+MANAGE_EXTERNAL_STORAGE、MainActivity 输出到原目录+清空日志、file_paths.xml
-- Release：`v2.17.0` 已建，`app-debug.apk`（19MB）已 `gh release upload --clobber` 更新；**本次改动后需重新构建并覆盖上传**
+- Release：`v2.17.0` 已建，`app-debug.apk`（19,043,979 字节）已 `gh release upload --clobber` 更新
 
 ---
 
