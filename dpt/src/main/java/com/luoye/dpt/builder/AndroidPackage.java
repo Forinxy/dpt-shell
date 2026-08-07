@@ -701,81 +701,17 @@ public abstract class AndroidPackage {
         }
         for(File dexFile : dexFiles) {
             ThreadPool.getInstance().execute(() -> {
-                final int dexNo = DexUtils.getDexNumber(dexFile.getName());
-                if(dexNo < 0) {
-                    countDownLatch.countDown();
-                    return;
-                }
-
-                File injectedDexFile = new File(dexFile.getAbsolutePath() + "_inject.dex");
-
                 try {
-                    DexUtils.injectInvokeMethod(dexFile.getAbsolutePath(),
-                            injectedDexFile.getAbsolutePath(),
-                            shellConfig.getJniClassNameSig()
-                    );
-
-                    dexFile.delete();
-
-                    injectedDexFile.renameTo(dexFile);
-                }
-                catch (Exception e) {
-                    injectedDexFile.delete();
-                }
-
-                if(isKeepClasses() && DexUtils.dexContainsKeepInPlace(dexFile)) {
-                    // Skip split entirely for dexes containing keep-in-place classes (e.g. Compose):
-                    // the re-partition would break Compose's cross-dex interface linking and cause IncompatibleClassChangeError.
-                    // The dex still goes through extractAllMethods (rule-matched classes are skipped as usual); it is just not split.
-                    LogUtils.info("Skip split for dex with keep-in-place classes (e.g. Compose): %s", dexFile.getName());
-                }
-                else if(isKeepClasses()) {
-                    File keepDex = new File(getKeepDexTempDir(packageDir).getAbsolutePath() + File.separator + dexFile.getName());
-                    File splitDex = new File(dexFile.getAbsolutePath() + "_split.dex");
-
-                    try {
-                        Pair<Integer, Integer> classesCountPair = DexUtils.splitDex(dexFile, keepDex, splitDex);
-
-                        keepClassesCount.set(keepClassesCount.get() + classesCountPair.getKey());
-                        totalClassesCount.set(totalClassesCount.get() + classesCountPair.getValue());
-
-                        dexFile.delete();
-
-                        splitDex.renameTo(dexFile);
-                    } catch (Exception e) {
-                        LogUtils.warn("WARNING: split %s fail", dexFile.getName());
-                        keepDex.delete();
-                        splitDex.delete();
-                    }
-                }
-
-                String extractedDexName = dexFile.getName().endsWith(".dex") ? dexFile.getName().replaceAll("\\.dex$", "_extracted.dat") : "_extracted.dat";
-                File extractedDexFile = new File(dexFile.getParent(), extractedDexName);
-
-                boolean obfuscate = !isSmaller();
-                List<Instruction> ret = DexUtils.extractAllMethods(dexFile, extractedDexFile, getPackageName(), isDumpCode(), obfuscate);
-                instructionMap.put(dexNo, ret);
-
-                File dexFileRightHashes = new File(dexFile.getParent(), FileUtils.getNewFileSuffix(dexFile.getName(),"dat"));
-
-                try {
-                    DexUtils.writeHashes(extractedDexFile, dexFileRightHashes);
-                    dexFile.delete();
-                    dexFileRightHashes.renameTo(dexFile);
-                }
-                catch (Exception e) {
+                    processSingleDex(dexFile, packageDir, instructionMap, keepClassesCount, totalClassesCount);
                 }
                 finally {
-                    if(extractedDexFile.exists()) {
-                        extractedDexFile.delete();
-                    }
+                    // Always release the latch. A missing countDown() would leave
+                    // the main thread blocked in countDownLatch.await() forever,
+                    // which on large APKs looks like the app is stuck (the worker
+                    // can die on OutOfMemoryError while DexUtils only catches
+                    // Exception, not Error).
+                    countDownLatch.countDown();
                 }
-
-                if("classes.dex".equals(dexFile.getName())) {
-                    String dexSignature = DexUtils.getDexSignature(dexFile);
-                    ShellConfig.getInstance().setDexSign(dexSignature);
-                }
-                countDownLatch.countDown();
             });
 
         }
@@ -796,6 +732,115 @@ public abstract class AndroidPackage {
         MultiDexCodeUtils.writeMultiDexCode(dataOutputPath,multiDexCode);
 
     }
+
+    /**
+     * Process a single dex file: inject reflection clinit calls, optionally split
+     * keep-classes, then extract all method bytecode into the code-item store.
+     *
+     * Errors (including OutOfMemoryError on large APKs) are caught and logged so
+     * the caller's finally-block always reaches countDownLatch.countDown(). Before
+     * this was split out, an OOM inside extractAllMethods (which catches only
+     * Exception) crashed the worker thread and the main thread hung forever on
+     * countDownLatch.await().
+     */
+    private void processSingleDex(File dexFile, String packageDir,
+                                  Map<Integer, List<Instruction>> instructionMap,
+                                  AtomicInteger keepClassesCount,
+                                  AtomicInteger totalClassesCount) {
+        final int dexNo = DexUtils.getDexNumber(dexFile.getName());
+        if(dexNo < 0) {
+            LogUtils.warn("Skip dex %s: bad dex number", dexFile.getName());
+            return;
+        }
+
+        ShellConfig shellConfig = ShellConfig.getInstance();
+
+        try {
+            File injectedDexFile = new File(dexFile.getAbsolutePath() + "_inject.dex");
+
+            try {
+                DexUtils.injectInvokeMethod(dexFile.getAbsolutePath(),
+                        injectedDexFile.getAbsolutePath(),
+                        shellConfig.getJniClassNameSig()
+                );
+
+                dexFile.delete();
+
+                injectedDexFile.renameTo(dexFile);
+            }
+            catch (Exception e) {
+                LogUtils.warn("Inject reflection clinit failed for %s: %s", dexFile.getName(), e.getMessage());
+                injectedDexFile.delete();
+            }
+
+            if(isKeepClasses() && DexUtils.dexContainsKeepInPlace(dexFile)) {
+                // Skip split entirely for dexes containing keep-in-place classes (e.g. Compose):
+                // the re-partition would break Compose's cross-dex interface linking and cause IncompatibleClassChangeError.
+                // The dex still goes through extractAllMethods (rule-matched classes are skipped as usual); it is just not split.
+                LogUtils.info("Skip split for dex with keep-in-place classes (e.g. Compose): %s", dexFile.getName());
+            }
+            else if(isKeepClasses()) {
+                File keepDex = new File(getKeepDexTempDir(packageDir).getAbsolutePath() + File.separator + dexFile.getName());
+                File splitDex = new File(dexFile.getAbsolutePath() + "_split.dex");
+
+                try {
+                    Pair<Integer, Integer> classesCountPair = DexUtils.splitDex(dexFile, keepDex, splitDex);
+
+                    keepClassesCount.set(keepClassesCount.get() + classesCountPair.getKey());
+                    totalClassesCount.set(totalClassesCount.get() + classesCountPair.getValue());
+
+                    dexFile.delete();
+
+                    splitDex.renameTo(dexFile);
+                } catch (Exception e) {
+                    LogUtils.warn("WARNING: split %s fail", dexFile.getName());
+                    keepDex.delete();
+                    splitDex.delete();
+                }
+            }
+
+            String extractedDexName = dexFile.getName().endsWith(".dex") ? dexFile.getName().replaceAll("\\.dex$", "_extracted.dat") : "_extracted.dat";
+            File extractedDexFile = new File(dexFile.getParent(), extractedDexName);
+
+            boolean obfuscate = !isSmaller();
+            List<Instruction> ret = null;
+            try {
+                LogUtils.info("Extract code from %s", dexFile.getName());
+                ret = DexUtils.extractAllMethods(dexFile, extractedDexFile, getPackageName(), isDumpCode(), obfuscate);
+            }
+            catch (Throwable t) {
+                // OutOfMemoryError is an Error and would otherwise escape
+                // DexUtils' catch(Exception), killing this worker thread and
+                // hanging the caller on the latch.
+                LogUtils.error("Extract code failed for %s: %s", dexFile.getName(), t.getMessage());
+            }
+            instructionMap.put(dexNo, ret);
+
+            File dexFileRightHashes = new File(dexFile.getParent(), FileUtils.getNewFileSuffix(dexFile.getName(),"dat"));
+
+            try {
+                DexUtils.writeHashes(extractedDexFile, dexFileRightHashes);
+                dexFile.delete();
+                dexFileRightHashes.renameTo(dexFile);
+            }
+            catch (Exception e) {
+            }
+            finally {
+                if(extractedDexFile.exists()) {
+                    extractedDexFile.delete();
+                }
+            }
+
+            if("classes.dex".equals(dexFile.getName())) {
+                String dexSignature = DexUtils.getDexSignature(dexFile);
+                ShellConfig.getInstance().setDexSign(dexSignature);
+            }
+        }
+        catch (Throwable t) {
+            LogUtils.error("Process dex %s failed: %s", dexFile.getName(), t.getMessage());
+        }
+    }
+
     /**
      * Get all dex files
      */

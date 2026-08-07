@@ -296,7 +296,8 @@ public class DexUtils {
                 dumpJSON.put(classJSONObject);
             }
         }
-        catch (Exception e){
+        catch (Throwable e){
+            LogUtils.error("Extract all methods from %s failed: %s", dexFile.getName(), e.getMessage());
         }
         finally {
             IoUtils.close(randomAccessFile);
@@ -390,19 +391,34 @@ public class DexUtils {
         //Note: Here is the size of the array
         instruction.setInstructionDataSize(insnsCapacity * 2);
         byte[] byteCode = new byte[insnsCapacity * 2];
-        //Write random bytes
-        SecureRandom insRandom = new SecureRandom();
-        for (int i = 0; i < insnsCapacity; i++) {
-            outRandomAccessFile.seek(insnsOffset + (i * 2));
-            byteCode[i * 2] = outRandomAccessFile.readByte();
-            byteCode[i * 2 + 1] = outRandomAccessFile.readByte();
-            outRandomAccessFile.seek(insnsOffset + (i * 2));
-            if(obfuscateIns) {
-                outRandomAccessFile.writeShort(insRandom.nextInt());
+        // Write random bytes. Read the whole insns block with a single seek and
+        // a bulk read, then seek back once and write it back in one shot. The
+        // old per-instruction seek() was O(instructions) random IO per method,
+        // which on a 100MB APK with tens of thousands of methods performed
+        // millions of seeks and looked like a deadlock on device storage.
+        outRandomAccessFile.seek(insnsOffset);
+        int readOff = 0;
+        while (readOff < byteCode.length) {
+            int read = outRandomAccessFile.read(byteCode, readOff, byteCode.length - readOff);
+            if (read < 0) {
+                break;
             }
-            else {
-                outRandomAccessFile.writeShort(0x0e);
+            readOff += read;
+        }
+
+        if(obfuscateIns) {
+            byte[] randomBytes = new byte[byteCode.length];
+            new SecureRandom().nextBytes(randomBytes);
+            outRandomAccessFile.seek(insnsOffset);
+            outRandomAccessFile.write(randomBytes, 0, randomBytes.length);
+        } else {
+            byte[] zeroBytes = new byte[byteCode.length];
+            for (int i = 0; i < zeroBytes.length; i += 2) {
+                zeroBytes[i] = 0x00;
+                zeroBytes[i + 1] = 0x0e;
             }
+            outRandomAccessFile.seek(insnsOffset);
+            outRandomAccessFile.write(zeroBytes, 0, zeroBytes.length);
         }
 
         int xorKey = ShellConfig.getInstance().getInsnsXorKey();
