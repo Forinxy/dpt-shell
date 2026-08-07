@@ -14,8 +14,8 @@
 | 基线版本 | v2.17.0（commit `2e4dedf1998aa298aa9f5eab3f4dbc4f4ed4e581`） |
 | 新增模块 | `app/`（Android 加固工具，Compose UI） |
 | App 包名 | `com.luoye.dpt.app` |
-| 加固产物 | 输出已签名加固 APK，可在设备端直接安装 |
-| 仓库 remote | `https://github.com/Forinxy/dpt-shell`（未推送，见第 13 节） |
+| 加固产物 | 输出已签名加固 APK，默认保存到**原 APK 所在目录**，命名 `原文件名_加固.apk` |
+| 仓库 remote | `https://github.com/Forinxy/dpt-shell`（见第 13 节） |
 
 核心思路：把桌面端 `dpt.jar` 的加固逻辑（APK 解包 → manifest 改写 → dex 处理 → so 加密 → 重打包 → 签名）整体编译进 Android App，壳资源（shell-files：壳 dex + 4 ABI 的 so）随 App 打包进 assets，运行时装到 filesDir 后由加固逻辑复用。
 
@@ -253,7 +253,8 @@ zip -r dpt-shell-app-源码.zip \
 |---|---|
 | 签名 | 仅内置运行时生成的调试密钥；正式签名需用户自行处理（第 7 节） |
 | minSdk | App 为 26（fastjson2 依赖 `MethodHandle`），低于 Android 8.0 设备不可装 |
-| 大 APK | 本机 7.8GiB 内存下大体积输入 APK 加固可能 OOM，建议用户侧构建用更大内存（`org.gradle.jvmargs=-Xmx2048m` 可上调） |
+| 大 APK | **已优化**：dex 处理串行化（ThreadPool 核心=1/最大=1）+ `largeHeap=true` + dex 流式复制 + 头部读取；本机 20MB 输入实测通过，100MB 需设备端验证（手机 heap 受 `largeHeap` 上限，仍可能 OOM 超大 APK） |
+| 存储权限 | Android 11+ 需授予"所有文件访问"（MANAGE_EXTERNAL_STORAGE），App 启动即跳设置引导；输出保存到原 APK 同目录 |
 | 未做真机冒烟 | 本环境无设备/模拟器，设备端行为（第 11 节第 5 步）待用户侧验证 |
 | 混淆 | App 未启用 R8/minify（`minifyEnabled false`），体积较大但逻辑透明 |
 | 需求 2 待办 | 代理类名/路径随机化增强未实施（需同步改 dex 重命名逻辑，风险高）；反调试 native 增强需重编译壳 so（用户选定 Java 侧随机，暂不做）；`LIB_DIR`/`ZIP_LIB_DIR` 固定目录未随机（native 与 Java 共用常量） |
@@ -262,12 +263,12 @@ zip -r dpt-shell-app-源码.zip \
 
 ## 13. Git 状态与推送
 
-- 当前 HEAD：`7816a21`（revert injectJunkAssets）→ 待提交本次根因修复
-- 已推送：5 个提交（app 模块、dpt 兼容、CI workflow、镜像开关、随机化增强 80a89bb、回滚 7816a21）
+- 当前 HEAD：`326dea3`（fix: restore fixed junk class base name）→ 待提交本次大 APK/存储/日志改动
+- 已推送：6 个提交（app 模块、dpt 兼容、CI workflow、镜像开关、随机化增强 80a89bb、回滚 7816a21、junk 基名修复 326dea3）
 - Actions：run `30937599875` completed success，artifact `dpt-shell-app-debug-apk`
 - remote：`https://github.com/Forinxy/dpt-shell`（push 需经 remote URL 临时注入 token）
-- 本次待提交：JunkCodeGenerator 固定前缀修复（dpt/src/main/java/com/luoye/dpt/dex/JunkCodeGenerator.java）
-- Release：`v2.17.0` 已建，`app-debug.apk`（19MB）已 `gh release upload --clobber` 更新；**修复后需重新构建并覆盖上传**
+- 本次待提交：ThreadPool 串行化+复用、DexUtils 内存优化、Manifest largeHeap+MANAGE_EXTERNAL_STORAGE、MainActivity 输出到原目录+清空日志、file_paths.xml
+- Release：`v2.17.0` 已建，`app-debug.apk`（19MB）已 `gh release upload --clobber` 更新；**本次改动后需重新构建并覆盖上传**
 
 ---
 

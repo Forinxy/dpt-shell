@@ -1,11 +1,15 @@
 package com.luoye.dpt.app
 
+import android.content.Context
 import android.content.Intent
 import android.content.ClipData
 import android.content.ClipboardManager
-import android.content.Context
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.os.Environment
+import android.provider.DocumentsContract
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -42,13 +46,15 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        ensureExternalStoragePermission()
+
         setContent {
             MaterialTheme {
                 val pickApkLauncher = rememberLauncherForActivityResult(
                     contract = ActivityResultContracts.OpenDocument()
                 ) { uri: Uri? ->
                     if (uri != null) {
-                        copyToCache(uri)
+                        onApkPicked(uri)
                     }
                 }
 
@@ -65,7 +71,15 @@ class MainActivity : ComponentActivity() {
                             .fillMaxSize()
                     ) {
                         Button(
-                            onClick = { pickApkLauncher.launch(arrayOf("application/vnd.android.package-archive", "application/octet-stream")) },
+                            onClick = {
+                                if (selectedApkPath != null) {
+                                    // Reselecting: clear logs and start a new round.
+                                    logs.clear()
+                                    outputApkPath = null
+                                    selectedApkPath = null
+                                }
+                                pickApkLauncher.launch(arrayOf("application/vnd.android.package-archive", "application/octet-stream"))
+                            },
                             enabled = !protecting,
                             modifier = Modifier.fillMaxWidth()
                         ) {
@@ -150,6 +164,22 @@ class MainActivity : ComponentActivity() {
         ensureInitialized()
     }
 
+    private fun ensureExternalStoragePermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            if (!Environment.isExternalStorageManager()) {
+                appendLog("[WARN] 请授予\"所有文件访问\"权限，以便把加固产物保存到原 APK 所在目录")
+                try {
+                    startActivity(
+                        Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
+                            .setData(Uri.parse("package:$packageName"))
+                    )
+                } catch (e: Exception) {
+                    startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
+                }
+            }
+        }
+    }
+
     private fun ensureInitialized() {
         if (!initialized.compareAndSet(false, true)) {
             return
@@ -172,6 +202,46 @@ class MainActivity : ComponentActivity() {
         LogUtils.setLogListener { level, _, msg ->
             appendLog("[$level] $msg")
         }
+    }
+
+    private fun onApkPicked(uri: Uri) {
+        // New round: clear the log panel and the previous output.
+        logs.clear()
+        outputApkPath = null
+        val realPath = resolveRealPath(uri)
+        if (realPath != null) {
+            selectedApkPath = realPath
+            appendLog("[INFO] Selected APK: $realPath")
+        } else {
+            copyToCache(uri)
+        }
+    }
+
+    /**
+     * Resolve a content:// Uri to a real file path so the reinforced APK can be
+     * written next to the source file. Requires MANAGE_EXTERNAL_STORAGE on
+     * Android 11+.
+     */
+    private fun resolveRealPath(uri: Uri): String? {
+        try {
+            if ("com.android.externalstorage.documents" == uri.authority) {
+                val docId = DocumentsContract.getDocumentId(uri)
+                val split = docId.split(":")
+                if (split.size >= 2) {
+                    val type = split[0]
+                    val path = split[1]
+                    val root = if ("primary".equals(type, ignoreCase = true)) {
+                        Environment.getExternalStorageDirectory().absolutePath
+                    } else {
+                        "/storage/$type"
+                    }
+                    return File(root, path).absolutePath
+                }
+            }
+        } catch (e: Exception) {
+            appendLog("[WARN] Resolve real path failed: " + e.message)
+        }
+        return null
     }
 
     private fun copyToCache(uri: Uri) {
@@ -213,19 +283,22 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun protectApk(apkPath: String): String? {
-        val outDir = File(cacheDir, "dpt-out")
-        outDir.mkdirs()
+        val inputFile = File(apkPath)
+        val originName = inputFile.name.removeSuffix(".apk")
+        // Write the reinforced APK next to the source file, named "<origin>_加固.apk".
+        val outputDir = inputFile.parentFile ?: cacheDir
+        val outputFile = File(outputDir, "${originName}_加固.apk")
+        outputDir.mkdirs()
 
         LogUtils.info("Building APK: %s", apkPath)
         val apk = Apk.Builder()
             .filePath(apkPath)
-            .outputPath(outDir.absolutePath)
+            .outputPath(outputFile.absolutePath)
             .sign(true)
             .build()
         apk.protect()
 
-        val files = outDir.listFiles { f -> f.isFile && f.name.endsWith(".apk") }
-        return files?.maxByOrNull { it.lastModified() }?.absolutePath
+        return if (outputFile.exists()) outputFile.absolutePath else null
     }
 
     private fun extractAsset(assetDirName: String, destDir: File) {

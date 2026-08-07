@@ -28,9 +28,11 @@ import org.json.JSONObject;
 import org.json.JSONException;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.RandomAccessFile;
-import java.nio.ByteBuffer;
+import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
 import java.security.SecureRandom;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -245,10 +247,12 @@ public class DexUtils {
         List<Instruction> instructionList = new ArrayList<>();
         Dex dex = null;
         RandomAccessFile randomAccessFile = null;
-        byte[] dexData = IoUtils.readFile(dexFile.getAbsolutePath());
-        IoUtils.writeFile(outDexFile.getAbsolutePath(),dexData);
         JSONArray dumpJSON = new JSONArray();
         try {
+            // Stream-copy the dex to outDexFile instead of reading the whole
+            // file into a byte[] first: big dexes (100MB APKs) would otherwise
+            // double the per-dex memory footprint and OOM the app.
+            Files.copy(dexFile.toPath(), outDexFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
             dex = new Dex(dexFile);
             int dexNumber = getDexNumber(dexFile.getName());
             randomAccessFile = new RandomAccessFile(outDexFile, "rw");
@@ -459,14 +463,20 @@ public class DexUtils {
     }
 
     public static String getDexSignature(File dexFile) {
-        byte[] dexData = IoUtils.readFile(dexFile.getAbsolutePath());
-        if(dexData.length <= 29) {
+        // Only the 20-byte SHA-1 signature at offset 9 is needed; reading the
+        // whole dex just for that wastes memory on large APKs.
+        byte[] header = new byte[29];
+        try (FileInputStream fis = new FileInputStream(dexFile)) {
+            int read = fis.read(header);
+            if (read < 29) {
+                return null;
+            }
+        } catch (IOException e) {
+            LogUtils.error("read dex header failed: %s", e.getMessage());
             return null;
         }
         byte[] signature = new byte[20];
-        ByteBuffer buffer = ByteBuffer.wrap(dexData);
-        buffer.position(9);
-        buffer.get(signature);
+        System.arraycopy(header, 9, signature, 0, 20);
         return HexUtils.toHexString(signature);
     }
 
